@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <base href="https://cdn.jsdelivr.net/gh/xxskidxx69420-ai/gtag-webgl@main/">
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Unity WebGL Player | Gorilla Tag WebGL</title>
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+  </head>
+  <body>
+    <div id="loading-text" style="color: white; font-size: 48px; font-family: cursive; text-align: center; margin-top: 20px;">LOADING...</div>
+    <div id="unity-container" class="unity-desktop" hidden>
+      <canvas id="unity-canvas" width=960 height=600></canvas>
+      <div id="unity-loading-bar">
+        <div id="unity-logo"></div>
+        <div id="unity-progress-bar-empty">
+          <div id="unity-progress-bar-full"></div>
+        </div>
+      </div>
+      <div id="unity-warning"></div>
+      <div id="unity-footer">
+        <div id="unity-webgl-logo"></div>
+        <div id="unity-fullscreen-button"></div>
+        <div id="unity-build-title">Gorilla Tag WebGL</div>
+      </div>
+    </div>
+
+    <script>
+      let loadedBytes = 0;
+      const loadingText = document.querySelector("#loading-text");
+      // Set to your real total after splitting (sum of part sizes in MB)
+      const TOTAL_MB = "154.00";
+
+      async function fetchWithProgress(url) {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Failed to fetch " + url + " (" + response.status + ")");
+        const reader = response.body.getReader();
+        const chunks = [];
+        let received = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          received += value.length;
+          loadedBytes += value.length;
+          chunks.push(value);
+          const mbDone = (loadedBytes / (1024 * 1024)).toFixed(2);
+          loadingText.textContent = "LOADING... " + mbDone + " MB / " + TOTAL_MB + " MB";
+        }
+        const fullBuffer = new Uint8Array(received);
+        let offset = 0;
+        for (const chunk of chunks) {
+          fullBuffer.set(chunk, offset);
+          offset += chunk.length;
+        }
+        return fullBuffer.buffer;
+      }
+
+      async function mergeFiles(fileParts) {
+        const buffers = await Promise.all(fileParts.map((part) => fetchWithProgress(part)));
+        const mergedBlob = new Blob(buffers);
+        return URL.createObjectURL(mergedBlob);
+      }
+
+      function getParts(file, start, end) {
+        const parts = [];
+        for (let i = start; i <= end; i++) {
+          parts.push(file + ".part" + i);
+        }
+        return parts;
+      }
+
+      (async () => {
+        try {
+          // *** CHANGE 1, 4 to match how many parts you created ***
+          const dataUrl = await mergeFiles(getParts("Build/GTAG.data", 1, 9));
+
+          // If wasm is NOT split, use normal path. If split, merge like data:
+          const codeUrl = await mergeFiles(getParts("Build/GTAG.wasm", 1, 2));
+
+          const container = document.querySelector("#unity-container");
+          container.hidden = false;
+          const canvas = document.querySelector("#unity-canvas");
+          const loadingBar = document.querySelector("#unity-loading-bar");
+          const progressBarFull = document.querySelector("#unity-progress-bar-full");
+          const fullscreenButton = document.querySelector("#unity-fullscreen-button");
+          const warningBanner = document.querySelector("#unity-warning");
+
+          function unityShowBanner(msg, type) {
+            function updateBannerVisibility() {
+              warningBanner.style.display = warningBanner.children.length ? "block" : "none";
+            }
+            const div = document.createElement("div");
+            div.innerHTML = msg;
+            warningBanner.appendChild(div);
+            if (type === "error") div.style = "background: red; padding: 10px;";
+            else {
+              if (type === "warning") div.style = "background: yellow; padding: 10px;";
+              setTimeout(function () {
+                warningBanner.removeChild(div);
+                updateBannerVisibility();
+              }, 5000);
+            }
+            updateBannerVisibility();
+          }
+
+          const buildUrl = "Build";
+          const loaderUrl = buildUrl + "/GTAG.loader.js";
+
+          const config = {
+            dataUrl: dataUrl,
+            frameworkUrl: buildUrl + "/GTAG.framework.js",
+            codeUrl: codeUrl,
+            streamingAssetsUrl: "StreamingAssets",
+            companyName: "ProjectRevial",
+            productName: "Gorilla Tag WebGL",
+            productVersion: "1.1.15",
+            showBanner: unityShowBanner,
+          };
+
+          if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+            const meta = document.createElement("meta");
+            meta.name = "viewport";
+            meta.content =
+              "width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes";
+            document.getElementsByTagName("head")[0].appendChild(meta);
+            container.className = "unity-mobile";
+            canvas.className = "unity-mobile";
+            unityShowBanner("WebGL builds are not supported on mobile devices.");
+          } else {
+            canvas.style.width = "960px";
+            canvas.style.height = "600px";
+          }
+
+          loadingBar.style.display = "block";
+
+          const script = document.createElement("script");
+          script.src = loaderUrl;
+          script.onload = () => {
+            createUnityInstance(canvas, config, (progress) => {
+              progressBarFull.style.width = 100 * progress + "%";
+            })
+              .then((unityInstance) => {
+                loadingText.remove();
+                loadingBar.style.display = "none";
+                fullscreenButton.onclick = () => {
+                  unityInstance.SetFullscreen(1);
+                };
+              })
+              .catch((message) => {
+                alert(message);
+              });
+          };
+          script.onerror = () => {
+            loadingText.textContent = "ERROR: failed to load " + loaderUrl;
+          };
+          document.body.appendChild(script);
+        } catch (error) {
+          console.error("Error loading game:", error);
+          loadingText.textContent = "ERROR LOADING: " + error.message;
+        }
+      })();
+    </script>
+  </body>
+</html>
